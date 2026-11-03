@@ -16,19 +16,30 @@ if ($destination === "") $destination = "California Academy of Sciences";
 // Check user preferences if available
 $preferredModes = "Walking, Cycling, Bus, Metro";
 $lowCarbonPref = 1;
+$travelPurpose = "Daily Commute";
 $budgetTier = "Moderate";
+$distancePref = "Within City";
 
 if ($user_id > 0) {
     try {
-        $prefStmt = $pdo->prepare("SELECT modes, low_carbon, budget_tier FROM user_profiles WHERE user_id = ? LIMIT 1");
+        $prefStmt = $pdo->prepare("
+            SELECT modes, low_carbon, travel_purpose, budget_tier, distance_preference 
+            FROM user_profiles 
+            WHERE user_id = ? 
+            LIMIT 1
+        ");
         $prefStmt->execute([$user_id]);
         if ($row = $prefStmt->fetch()) {
             $preferredModes = $row["modes"] ?: $preferredModes;
             $lowCarbonPref = (int)$row["low_carbon"];
+            $travelPurpose = $row["travel_purpose"] ?: $travelPurpose;
             $budgetTier = $row["budget_tier"] ?: $budgetTier;
+            $distancePref = $row["distance_preference"] ?: $distancePref;
         }
     } catch (Exception $e) {}
 }
+
+$userModeList = array_map('trim', explode(',', strtolower($preferredModes)));
 
 // Calculate realistic baseline distance (km) based on string hash / location keywords
 $seed = abs(crc32(strtolower($origin . "-" . $destination))) % 100;
@@ -38,6 +49,24 @@ $baseDistanceKm = round(4.5 + ($seed % 15) * 0.5, 1); // Between 4.5 km and 11.5
 $carEmissionKg = round($baseDistanceKm * 0.170, 2);
 
 $routes = [
+    [
+        "id" => "route_walking",
+        "mode" => "Walking",
+        "title" => "Urban Walking Corridor",
+        "duration_minutes" => (int)round($baseDistanceKm * 12.0),
+        "duration_text" => round($baseDistanceKm * 12.0) . " min",
+        "distance_km" => $baseDistanceKm,
+        "distance_text" => $baseDistanceKm . " km",
+        "fare" => 0.00,
+        "fare_text" => "Free",
+        "transfers" => 0,
+        "co2_emitted_kg" => 0.00,
+        "co2_saved_kg" => $carEmissionKg,
+        "steps" => ["Pedestrian sidewalk", "Protected crosswalks", "Direct access"],
+        "route_details" => "Zero carbon · Healthy urban walking path · Best for short trips",
+        "badge" => "100% GREEN",
+        "is_recommended" => false
+    ],
     [
         "id" => "route_metro",
         "mode" => "Metro",
@@ -98,40 +127,22 @@ $routes = [
         "title" => "Regional Commuter Rail",
         "duration_minutes" => (int)round(18 + $baseDistanceKm * 2.5),
         "duration_text" => round(18 + $baseDistanceKm * 2.5) . " min",
-        "distance_km" => $baseDistanceKm,
-        "distance_text" => $baseDistanceKm . " km",
-        "fare" => 5.25,
-        "fare_text" => "$5.25",
+        "distance_km" => round($baseDistanceKm * 1.15, 1),
+        "distance_text" => round($baseDistanceKm * 1.15, 1) . " km",
+        "fare" => 6.00,
+        "fare_text" => "$6.00",
         "transfers" => 1,
         "co2_emitted_kg" => round($baseDistanceKm * 0.040, 2),
         "co2_saved_kg" => round($baseDistanceKm * 0.130, 2),
-        "steps" => ["Walk 8 min", "Caltrain Commuter", "Connecting Tram"],
-        "route_details" => "High speed rail connection · 1 cross-platform transfer",
+        "steps" => ["Walk 7 min", "Commuter Express Line", "Short Transfer"],
+        "route_details" => "High speed regional connection · Air-conditioned cars",
         "badge" => "FASTEST TRANSIT",
-        "is_recommended" => false
-    ],
-    [
-        "id" => "route_walk",
-        "mode" => "Walking",
-        "title" => "Pedestrian Walkway",
-        "duration_minutes" => (int)round($baseDistanceKm * 12.0),
-        "duration_text" => round($baseDistanceKm * 12.0) . " min",
-        "distance_km" => round($baseDistanceKm * 0.9, 1),
-        "distance_text" => round($baseDistanceKm * 0.9, 1) . " km",
-        "fare" => 0.00,
-        "fare_text" => "Free",
-        "transfers" => 0,
-        "co2_emitted_kg" => 0.00,
-        "co2_saved_kg" => $carEmissionKg,
-        "steps" => ["Continuous sidewalk", "Pedestrian crossings"],
-        "route_details" => "Healthiest option · 0 carbon footprint",
-        "badge" => "FREE & HEALTHY",
         "is_recommended" => false
     ],
     [
         "id" => "route_taxi",
         "mode" => "Taxi",
-        "title" => "Rideshare / City Taxi",
+        "title" => "Electric / Hybrid Rideshare",
         "duration_minutes" => (int)round(8 + $baseDistanceKm * 2.2),
         "duration_text" => round(8 + $baseDistanceKm * 2.2) . " min",
         "distance_km" => $baseDistanceKm,
@@ -166,28 +177,49 @@ $routes = [
     ]
 ];
 
-// Determine AI recommended route
-// Priority: lowest CO2 with reasonable time (< 50 min)
-if ($lowCarbonPref) {
-    // Metro is default recommendation, or Cycling if distance <= 5km
-    if ($baseDistanceKm <= 5.0) {
-        foreach ($routes as &$r) {
-            $r["is_recommended"] = ($r["mode"] === "Cycling");
-        }
-    } else {
-        foreach ($routes as &$r) {
-            $r["is_recommended"] = ($r["mode"] === "Metro");
-        }
+// Determine AI recommended route based on user travel preferences:
+// Check preferred modes
+$candidateModes = [];
+foreach ($routes as $r) {
+    if (in_array(strtolower($r["mode"]), $userModeList)) {
+        $candidateModes[] = $r["mode"];
     }
 }
+if (empty($candidateModes)) {
+    $candidateModes = ["Metro", "Bus", "Cycling", "Walking"];
+}
+
+$chosenMode = "Metro";
+if (strcasecmp($travelPurpose, "Adventure") === 0 && in_array("Cycling", $candidateModes)) {
+    $chosenMode = "Cycling";
+} elseif ($lowCarbonPref && $baseDistanceKm <= 3.5 && in_array("Walking", $candidateModes)) {
+    $chosenMode = "Walking";
+} elseif ($lowCarbonPref && $baseDistanceKm <= 6.0 && in_array("Cycling", $candidateModes)) {
+    $chosenMode = "Cycling";
+} elseif (in_array("Metro", $candidateModes)) {
+    $chosenMode = "Metro";
+} elseif (in_array("Bus", $candidateModes)) {
+    $chosenMode = "Bus";
+} elseif (in_array("Train", $candidateModes)) {
+    $chosenMode = "Train";
+} else {
+    $chosenMode = $candidateModes[0];
+}
+
+foreach ($routes as &$r) {
+    $r["is_recommended"] = ($r["mode"] === $chosenMode);
+}
+
+$aiInsight = "Personalized for {$travelPurpose}: {$chosenMode} matches your preferred modes and avoids up to {$carEmissionKg} kg of CO₂.";
 
 echo json_encode([
     "success" => true,
     "origin" => $origin,
     "destination" => $destination,
     "date_time" => $dateTime,
-    "ai_insight" => "AI Recommended: Metro & Bike options avoid up to " . $carEmissionKg . " kg of CO₂ compared to driving alone.",
-    "data_source" => "MoveSmart Multi-Modal Routing Engine (Estimated Transit Model)",
+    "travel_purpose" => $travelPurpose,
+    "ai_insight" => $aiInsight,
+    "data_source" => "MoveSmart Multi-Modal Routing Engine (Personalized AI Model)",
     "routes" => $routes
 ]);
 ?>

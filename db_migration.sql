@@ -96,3 +96,11 @@ CREATE TABLE IF NOT EXISTS `payment_methods` (
   CONSTRAINT `fk_payment_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- 7. Add Advanced Multi-Modal & AI Tourist Recommendation Preferences
+ALTER TABLE `user_profiles`
+  ADD COLUMN IF NOT EXISTS `travel_purpose` VARCHAR(50) DEFAULT 'Daily Commute',
+  ADD COLUMN IF NOT EXISTS `destination_types` VARCHAR(255) DEFAULT 'Parks, Museums',
+  ADD COLUMN IF NOT EXISTS `distance_preference` VARCHAR(50) DEFAULT 'Within City';
+
+
+

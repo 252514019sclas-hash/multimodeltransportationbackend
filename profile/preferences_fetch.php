@@ -30,12 +30,15 @@ try {
             "user_id" => $user_id,
             "modes" => "Walking, Cycling, Bus, Metro",
             "low_carbon" => 1,
+            "travel_purpose" => "Daily Commute",
+            "destination_types" => "Parks, Museums",
+            "distance_preference" => "Within City",
+            "tourist_recommendations" => 1,
             "budget_tier" => "Moderate",
             "max_duration" => "Under 45 min",
             "notifications_enabled" => 1,
             "journey_reminders" => 1,
             "booking_updates" => 1,
-            "tourist_recommendations" => 1,
             "travel_alerts" => 1
         ];
     }
@@ -45,12 +48,15 @@ try {
         "preferences" => [
             "modes" => $pref["modes"] ?? "Walking, Cycling, Bus, Metro",
             "low_carbon" => (bool)($pref["low_carbon"] ?? 1),
+            "travel_purpose" => $pref["travel_purpose"] ?? "Daily Commute",
+            "destination_types" => $pref["destination_types"] ?? "Parks, Museums",
+            "distance_preference" => $pref["distance_preference"] ?? "Within City",
+            "tourist_recommendations" => (bool)($pref["tourist_recommendations"] ?? 1),
             "budget_tier" => $pref["budget_tier"] ?? "Moderate",
             "max_duration" => $pref["max_duration"] ?? "Under 45 min",
             "notifications_enabled" => (bool)($pref["notifications_enabled"] ?? 1),
             "journey_reminders" => (bool)($pref["journey_reminders"] ?? 1),
             "booking_updates" => (bool)($pref["booking_updates"] ?? 1),
-            "tourist_recommendations" => (bool)($pref["tourist_recommendations"] ?? 1),
             "travel_alerts" => (bool)($pref["travel_alerts"] ?? 1)
         ]
     ]);
@@ -60,4 +66,3 @@ try {
     echo json_encode(["success" => false, "message" => "Database error: " . $e->getMessage()]);
 }
 ?>
-
