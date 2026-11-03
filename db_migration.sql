@@ -102,5 +102,21 @@ ALTER TABLE `user_profiles`
   ADD COLUMN IF NOT EXISTS `destination_types` VARCHAR(255) DEFAULT 'Parks, Museums',
   ADD COLUMN IF NOT EXISTS `distance_preference` VARCHAR(50) DEFAULT 'Within City';
 
+-- 8. Notifications History Table
+CREATE TABLE IF NOT EXISTS `notifications` (
+  `notification_id` INT(11) NOT NULL AUTO_INCREMENT,
+  `user_id` INT(11) NOT NULL,
+  `title` VARCHAR(150) NOT NULL,
+  `message` TEXT NOT NULL,
+  `type` ENUM('journey_reminder', 'travel_update', 'tourist_recommendation', 'travel_alert') NOT NULL DEFAULT 'travel_update',
+  `is_read` TINYINT(1) NOT NULL DEFAULT 0,
+  `action_data` VARCHAR(255) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`notification_id`),
+  KEY `user_id_idx` (`user_id`),
+  CONSTRAINT `fk_notification_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+
 
 

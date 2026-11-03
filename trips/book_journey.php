@@ -55,6 +55,17 @@ try {
 
     $journeyId = (int)$pdo->lastInsertId();
 
+    // Add journey reminder notification
+    try {
+        $notifStmt = $pdo->prepare("
+            INSERT INTO notifications (user_id, title, message, type, is_read, action_data)
+            VALUES (?, ?, ?, 'journey_reminder', 0, ?)
+        ");
+        $notifTitle = "Journey Confirmed · $refCode";
+        $notifMsg = "Your trip from $origin to $destination via $route_title is ready. Ticket code: $refCode.";
+        $notifStmt->execute([$user_id, $notifTitle, $notifMsg, $refCode]);
+    } catch (Exception $ex) {}
+
     echo json_encode([
         "success" => true,
         "message" => "Journey booked successfully",
