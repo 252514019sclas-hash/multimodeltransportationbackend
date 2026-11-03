@@ -3,7 +3,7 @@ header("Content-Type: application/json");
 require_once __DIR__ . "/../config/config.php";
 
 $input = json_decode(file_get_contents("php://input"), true);
-$data = is_array($input) ? $input : $_POST;
+$data = is_array($input) ? array_merge($_GET, $input) : array_merge($_GET, $_POST);
 
 $origin = trim($data["origin"] ?? "Ferry Building");
 $destination = trim($data["destination"] ?? "California Academy of Sciences");
