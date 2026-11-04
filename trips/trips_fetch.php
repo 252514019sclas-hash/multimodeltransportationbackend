@@ -28,6 +28,13 @@ try {
             status,
             journey_date,
             booking_reference,
+            payment_status,
+            transaction_id,
+            payment_date,
+            verification_status,
+            verified_at,
+            qr_data,
+            passenger_name,
             created_at
         FROM journeys
         WHERE user_id = ?
@@ -46,6 +53,7 @@ try {
     $trips = $stmt->fetchAll();
 
     $formatted = array_map(function($t) {
+        $fareVal = (float)$t["fare"];
         return [
             "journey_id" => (int)$t["journey_id"],
             "user_id" => (int)$t["user_id"],
@@ -55,14 +63,21 @@ try {
             "route_title" => $t["route_title"],
             "duration_minutes" => (int)$t["duration_minutes"],
             "distance_km" => (float)$t["distance_km"],
-            "fare" => (float)$t["fare"],
-            "fare_text" => "$" . number_format((float)$t["fare"], 2),
+            "fare" => $fareVal,
+            "fare_text" => "₹" . number_format($fareVal, 0),
             "transfers" => (int)$t["transfers"],
             "co2_saved_kg" => (float)$t["co2_saved_kg"],
             "co2_emitted_kg" => (float)$t["co2_emitted_kg"],
             "status" => $t["status"],
             "journey_date" => $t["journey_date"],
             "booking_reference" => $t["booking_reference"],
+            "payment_status" => $t["payment_status"] ?? "successful",
+            "transaction_id" => $t["transaction_id"] ?? ("TXN-" . $t["booking_reference"]),
+            "payment_date" => $t["payment_date"] ?? $t["created_at"],
+            "verification_status" => $t["verification_status"] ?? "valid",
+            "verified_at" => $t["verified_at"],
+            "qr_data" => $t["qr_data"] ?? json_encode(["ref" => $t["booking_reference"], "id" => $t["journey_id"]]),
+            "passenger_name" => $t["passenger_name"] ?? "MoveSmart Traveler",
             "created_at" => $t["created_at"]
         ];
     }, $trips);
@@ -77,4 +92,3 @@ try {
     echo json_encode(["success" => false, "message" => "Database error: " . $e->getMessage()]);
 }
 ?>
-
