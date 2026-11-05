@@ -1,7 +1,6 @@
-
 <?php
 $host = "localhost";
-$dbname = "multimodel transportation";
+$dbname = "multimodeltransportation";
 $username = "root";
 $password = "";
 
@@ -25,4 +24,3 @@ try {
     exit;
 }
 ?>
-
