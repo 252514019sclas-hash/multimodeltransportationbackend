@@ -25,3 +25,4 @@ foreach ($columns as $sql) {
 
 echo json_encode(["success" => true, "results" => $results]);
 ?>
+
