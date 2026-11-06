@@ -1,22 +1,46 @@
 <?php
 header("Content-Type: application/json");
-require_once __DIR__ . "/../config/config.php";
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
+
+if (file_exists(__DIR__ . "/config/config.php")) {
+    require_once __DIR__ . "/config/config.php";
+} elseif (file_exists(__DIR__ . "/../config/config.php")) {
+    require_once __DIR__ . "/../config/config.php";
+} else {
+    require_once "C:/Xamp/htdocs/multimodeltrans/config/config.php";
+}
 
 $user_id = filter_var($_GET["user_id"] ?? 0, FILTER_VALIDATE_INT);
 $city = trim($_GET["city"] ?? "");
 $category = trim($_GET["category"] ?? "");
 $search = trim($_GET["search"] ?? "");
+$userLat = isset($_GET["lat"]) ? (float)$_GET["lat"] : null;
+$userLng = isset($_GET["lng"]) ? (float)$_GET["lng"] : null;
+
+// Helper: Haversine distance in km
+function calcDistance($lat1, $lon1, $lat2, $lon2) {
+    if (!$lat1 || !$lon1 || !$lat2 || !$lon2) return null;
+    $earthRadius = 6371.0;
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLon = deg2rad($lon2 - $lon1);
+    $a = sin($dLat / 2) * sin($dLat / 2) +
+         cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+         sin($dLon / 2) * sin($dLon / 2);
+    $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+    return round($earthRadius * $c, 1);
+}
 
 try {
-    // 1. Fetch user travel preferences if user_id is provided
+    // 1. Fetch user travel preferences if available
     $touristRecEnabled = true;
     $travelPurpose = "Daily Commute";
     $preferredDestTypes = [];
-    $distancePref = "Within City";
 
     if ($user_id > 0) {
         $prefStmt = $pdo->prepare("
-            SELECT tourist_recommendations, travel_purpose, destination_types, distance_preference 
+            SELECT tourist_recommendations, travel_purpose, destination_types 
             FROM user_profiles 
             WHERE user_id = ? 
             LIMIT 1
@@ -25,9 +49,7 @@ try {
         if ($pref = $prefStmt->fetch()) {
             $touristRecEnabled = (bool)($pref["tourist_recommendations"] ?? 1);
             $travelPurpose = $pref["travel_purpose"] ?? "Daily Commute";
-            $distPrefRaw = $pref["distance_preference"] ?? "Within City";
-            $distancePref = $distPrefRaw;
-            $rawTypes = $pref["destination_types"] ?? "Parks, Museums";
+            $rawTypes = $pref["destination_types"] ?? "Temples, Beaches, Historical Places";
             $preferredDestTypes = array_map('trim', explode(',', strtolower($rawTypes)));
         }
     }
@@ -47,6 +69,9 @@ try {
             p.rating,
             p.distance_km,
             p.duration_visit,
+            p.latitude,
+            p.longitude,
+            p.nearby_transit,
             CASE WHEN s.saved_id IS NOT NULL THEN 1 ELSE 0 END AS is_saved
         FROM tourist_places p
         LEFT JOIN saved_places s ON p.place_id = s.place_id AND s.user_id = ?
@@ -74,104 +99,60 @@ try {
         $params[] = "%$search%";
     }
 
+    $sql .= " ORDER BY p.rating DESC, p.name ASC";
+
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
-    $places = $stmt->fetchAll();
+    $places = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Process personalization & scoring based on user travel preferences
-    $formatted = array_map(function($p) use ($touristRecEnabled, $travelPurpose, $preferredDestTypes, $distancePref) {
+    // 3. Compute dynamic distance and recommendations
+    $formatted = array_map(function($p) use ($touristRecEnabled, $preferredDestTypes, $userLat, $userLng) {
+        $pLat = (float)$p["latitude"];
+        $pLng = (float)$p["longitude"];
+
+        // Compute real distance from user coordinates if available
+        if ($userLat && $userLng && $pLat && $pLng) {
+            $dist = calcDistance($userLat, $userLng, $pLat, $pLng);
+            if ($dist !== null) {
+                $p["distance_km"] = $dist;
+            }
+        }
+
         $categoryLower = strtolower($p["category"]);
-        $descLower = strtolower($p["description"] . " " . $p["name"]);
-        $dist = (float)$p["distance_km"];
-
         $score = 0;
         $matchReasons = [];
 
         if ($touristRecEnabled && !empty($preferredDestTypes)) {
             foreach ($preferredDestTypes as $type) {
                 if ($type === "") continue;
-                if ((strpos($type, 'histor') !== false && strpos($categoryLower, 'histor') !== false) ||
-                    (strpos($type, 'temple') !== false && strpos($categoryLower, 'temple') !== false) ||
-                    (strpos($type, 'beach') !== false && strpos($categoryLower, 'beach') !== false) ||
-                    (strpos($type, 'park') !== false && (strpos($categoryLower, 'park') !== false || strpos($categoryLower, 'nature') !== false)) ||
-                    (strpos($type, 'museum') !== false && strpos($categoryLower, 'museum') !== false) ||
-                    (strpos($type, 'nature') !== false && strpos($categoryLower, 'nature') !== false) ||
-                    (strpos($type, 'adventure') !== false && (strpos($categoryLower, 'nature') !== false || strpos($descLower, 'trail') !== false))) {
+                if (strpos($categoryLower, $type) !== false || strpos($type, $categoryLower) !== false) {
                     $score += 30;
-                    $matchReasons[] = ucwords($type);
+                    $matchReasons[] = "Matches preferred " . ucwords($type);
+                    break;
                 }
             }
-
-            // Distance preference scoring
-            if ($distancePref === "Nearby" && $dist <= 3.5) {
-                $score += 20;
-                $matchReasons[] = "Nearby ($dist km)";
-            } elseif ($distancePref === "Within City" && $dist <= 10.0) {
-                $score += 15;
-            } elseif ($distancePref === "Long Distance" && $dist >= 6.0) {
-                $score += 20;
-                $matchReasons[] = "Excursion ($dist km)";
-            }
-
-            // Purpose alignment
-            if (strcasecmp($travelPurpose, "Adventure") === 0 && (strpos($categoryLower, "nature") !== false || strpos($categoryLower, "park") !== false)) {
-                $score += 25;
-                $matchReasons[] = "Adventure Friendly";
-            } elseif (strcasecmp($travelPurpose, "Tourism") === 0 && (strpos($categoryLower, "histor") !== false || strpos($categoryLower, "museum") !== false)) {
-                $score += 25;
-                $matchReasons[] = "Sightseeing Pick";
-            }
         }
 
-        $isRec = ($touristRecEnabled && $score >= 30);
-        $reasonText = null;
-        if ($isRec && !empty($matchReasons)) {
-            $reasonText = "AI Pick · " . implode(" · ", array_unique(array_slice($matchReasons, 0, 2)));
-        }
+        $score += (float)$p["rating"] * 10;
+        $p["is_recommended"] = ($score >= 60);
+        $p["recommendation_score"] = $score;
+        $p["recommendation_reason"] = !empty($matchReasons) ? implode(" · ", $matchReasons) : "Top-rated Tamil Nadu destination";
 
-        return [
-            "place_id" => (int)$p["place_id"],
-            "name" => $p["name"],
-            "city" => $p["city"],
-            "category" => $p["category"],
-            "description" => $p["description"],
-            "image_url" => $p["image_url"],
-            "location_address" => $p["location_address"],
-            "visiting_hours" => $p["visiting_hours"],
-            "entry_fee" => $p["entry_fee"],
-            "rating" => (float)$p["rating"],
-            "distance_km" => $dist,
-            "duration_visit" => $p["duration_visit"],
-            "is_saved" => (bool)$p["is_saved"],
-            "is_recommended" => $isRec,
-            "ai_reason" => $reasonText,
-            "_score" => $score + ((float)$p["rating"] * 5)
-        ];
+        return $p;
     }, $places);
-
-    // Sort by recommendation score first, then rating
-    usort($formatted, function($a, $b) {
-        if ($b["_score"] != $a["_score"]) {
-            return $b["_score"] <=> $a["_score"];
-        }
-        return $b["rating"] <=> $a["rating"];
-    });
-
-    // Remove internal _score key
-    $cleanList = array_map(function($item) {
-        unset($item["_score"]);
-        return $item;
-    }, $formatted);
 
     echo json_encode([
         "success" => true,
-        "tourist_recommendations_active" => $touristRecEnabled,
-        "travel_purpose" => $travelPurpose,
-        "places" => $cleanList
+        "total" => count($formatted),
+        "city" => $city ?: "Tamil Nadu",
+        "category" => $category ?: "All",
+        "places" => $formatted
     ]);
-
-} catch (PDOException $e) {
+} catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(["success" => false, "message" => "Database error: " . $e->getMessage()]);
+    echo json_encode([
+        "success" => false,
+        "message" => "Error loading tourist places: " . $e->getMessage(),
+        "places" => []
+    ]);
 }
-?>
