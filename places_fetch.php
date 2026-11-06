@@ -87,8 +87,10 @@ try {
     }
 
     if ($category !== "" && strtolower($category) !== "all") {
-        $sql .= " AND p.category LIKE ?";
+        $cleanCat = rtrim($category, "s");
+        $sql .= " AND (p.category LIKE ? OR p.category LIKE ?)";
         $params[] = "%$category%";
+        $params[] = "%$cleanCat%";
     }
 
     if ($search !== "") {
